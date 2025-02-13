@@ -22,6 +22,7 @@ DATABASE_URL = os.environ['DATABASE_URL'] # 'mysql+mysqlconnector://root:root@12
 SPOKEN_LANGUAGE = 'any'
 LANGUAGE = 'any'
 
+
 # 解析数据库URL
 db_url = urlparse(DATABASE_URL)
 db_config = {
@@ -60,7 +61,7 @@ CREATE TABLE IF NOT EXISTS github_repository (
     license VARCHAR(100),
     last_updated BIGINT,
     created_at BIGINT,
-    readme TEXT,
+    readme mediumtext,
     about VARCHAR(1000),
     about_link VARCHAR(255),
     ai_summary TEXT,
@@ -91,6 +92,7 @@ def parse_stars(text):
 
 def fetch_trending_repos():
     """步骤1：获取GitHub趋势数据"""
+    print('fetch trending repos: ', SPOKEN_LANGUAGE, LANGUAGE)
     url = 'https://github.com/trending'
     if LANGUAGE != 'any':
         url += f'/{LANGUAGE}'
@@ -272,7 +274,7 @@ def fetch_repo_details(repo_name):
 
 def generate_ai_summary(repo_name, about, readme):
     """步骤3：生成AI摘要"""
-    prompt = f"\n仓库名：{repo_name}\n描述: {about}\n\n----\n<README>\n{readme}\n</README>"
+    prompt = f"\n仓库名：{repo_name}\n描述: {about}\n\n----\n<README>\n{readme[:2000]}\n</README>"
 
     try:
         response = requests.post(
@@ -323,12 +325,16 @@ def main():
     try:
         # 步骤1：获取趋势数据
         global SPOKEN_LANGUAGE, LANGUAGE
-        for _SPOKEN_LANGUAGE in ['any', 'zh', 'en']:
+        for _SPOKEN_LANGUAGE in ['any']:
             for _LANGUAGE in 'any/javascript/typescript/java/go/python'.split('/'):
                 SPOKEN_LANGUAGE = _SPOKEN_LANGUAGE
                 LANGUAGE = _LANGUAGE
+                start_time = time.time()
                 fetch_trending_repos()
-                time.sleep(5)  # 遵守GitHub API速率限制
+                end_time = time.time()
+                if end_time - start_time < 5:
+                    time.sleep(5.1 - end_time + start_time)  # 遵守GitHub API速率限制
+
 
         # 步骤2：获取仓库详情
         _now = int(time.time())
