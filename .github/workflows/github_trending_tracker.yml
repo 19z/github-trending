@@ -1,0 +1,44 @@
+name: GitHub Trending Tracker
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'  # 每6小时运行一次
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/pip
+          venv/
+        key: ${{ runner.os }}-pip-v0
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install mysql-connector-python beautifulsoup4 requests python-dotenv
+
+    - name: Run tracking script
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+        OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      run: |
+        python github_trending.py
