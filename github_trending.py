@@ -22,7 +22,6 @@ DATABASE_URL = os.environ['DATABASE_URL'] # 'mysql+mysqlconnector://root:root@12
 SPOKEN_LANGUAGE = 'any'
 LANGUAGE = 'any'
 
-
 # 解析数据库URL
 db_url = urlparse(DATABASE_URL)
 db_config = {
@@ -187,6 +186,7 @@ def update_trending_stats(repos):
 github_session = requests.Session()
 
 request_lock = threading.Lock()
+db_lock = threading.Lock()
 
 
 def github_api_request(url, params=None):
@@ -235,30 +235,30 @@ def fetch_repo_details(repo_name):
             int(time.time()),
             repo_name
         )
+        with db_lock:
+            # 检查内容变化
+            cursor.execute("""
+            SELECT readme, about, ai_summary 
+            FROM github_repository 
+            WHERE name = %s
+            """, (repo_name,))
+            existing = cursor.fetchone()
 
-        # 检查内容变化
-        cursor.execute("""
-        SELECT readme, about, ai_summary 
-        FROM github_repository 
-        WHERE name = %s
-        """, (repo_name,))
-        existing = cursor.fetchone()
-
-        # 更新仓库信息
-        cursor.execute("""
-        UPDATE github_repository SET
-            fork_num = %s,
-            star_num = %s,
-            license = %s,
-            last_updated = %s,
-            created_at = %s,
-            readme = %s,
-            about = %s,
-            about_link = %s,
-            last_flush_time = %s
-        WHERE name = %s
-        """, update_data)
-        conn.commit()
+            # 更新仓库信息
+            cursor.execute("""
+            UPDATE github_repository SET
+                fork_num = %s,
+                star_num = %s,
+                license = %s,
+                last_updated = %s,
+                created_at = %s,
+                readme = %s,
+                about = %s,
+                about_link = %s,
+                last_flush_time = %s
+            WHERE name = %s
+            """, update_data)
+            conn.commit()
 
         # 生成AI摘要
         if (existing and (existing[0] != update_data[5] or existing[1] != update_data[6])) \
@@ -299,13 +299,13 @@ def generate_ai_summary(repo_name, about, readme):
         )
         response.raise_for_status()
         summary = response.json()['choices'][0]['message']['content'].strip()
-
-        cursor.execute("""
-        UPDATE github_repository 
-        SET ai_summary = %s 
-        WHERE name = %s
-        """, (summary, repo_name))
-        conn.commit()
+        with db_lock:
+            cursor.execute("""
+            UPDATE github_repository 
+            SET ai_summary = %s 
+            WHERE name = %s
+            """, (summary, repo_name))
+            conn.commit()
         return summary
     except Exception as e:
         print(f"AI summary failed for {repo_name}: {str(e)}")
@@ -325,15 +325,15 @@ def main():
     try:
         # 步骤1：获取趋势数据
         global SPOKEN_LANGUAGE, LANGUAGE
-        for _SPOKEN_LANGUAGE in ['any']:
-            for _LANGUAGE in 'any/javascript/typescript/java/go/python'.split('/'):
-                SPOKEN_LANGUAGE = _SPOKEN_LANGUAGE
-                LANGUAGE = _LANGUAGE
-                start_time = time.time()
-                fetch_trending_repos()
-                end_time = time.time()
-                if end_time - start_time < 5:
-                    time.sleep(5.1 - end_time + start_time)  # 遵守GitHub API速率限制
+        # for _SPOKEN_LANGUAGE in ['any']:
+        #     for _LANGUAGE in 'any/javascript/typescript/java/go/python'.split('/'):
+        #         SPOKEN_LANGUAGE = _SPOKEN_LANGUAGE
+        #         LANGUAGE = _LANGUAGE
+        #         start_time = time.time()
+        #         fetch_trending_repos()
+        #         end_time = time.time()
+        #         if end_time - start_time < 5:
+        #             time.sleep(5.1 - end_time + start_time)  # 遵守GitHub API速率限制
 
 
         # 步骤2：获取仓库详情
@@ -351,7 +351,7 @@ def main():
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor() as executor:
             executor.map(fetch_repo_details, [repo_name for (repo_name,) in cursor.fetchall()])
-
+            executor.shutdown(wait=True)
 
     finally:
         cursor.close()
