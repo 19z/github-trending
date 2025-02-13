@@ -261,8 +261,7 @@ def fetch_repo_details(repo_name):
             conn.commit()
 
         # 生成AI摘要
-        if (existing and (existing[0] != update_data[5] or existing[1] != update_data[6])) \
-                or not existing or not existing[2]:
+        if not existing or not existing[2]:
             print('生成摘要', end=' ')
             _summary = generate_ai_summary(repo_name, update_data[6], update_data[5])
             print(_summary)
@@ -325,15 +324,15 @@ def main():
     try:
         # 步骤1：获取趋势数据
         global SPOKEN_LANGUAGE, LANGUAGE
-        # for _SPOKEN_LANGUAGE in ['any']:
-        #     for _LANGUAGE in 'any/javascript/typescript/java/go/python'.split('/'):
-        #         SPOKEN_LANGUAGE = _SPOKEN_LANGUAGE
-        #         LANGUAGE = _LANGUAGE
-        #         start_time = time.time()
-        #         fetch_trending_repos()
-        #         end_time = time.time()
-        #         if end_time - start_time < 5:
-        #             time.sleep(5.1 - end_time + start_time)  # 遵守GitHub API速率限制
+        for _SPOKEN_LANGUAGE in ['any']:
+            for _LANGUAGE in 'any/javascript/typescript/java/go/python'.split('/'):
+                SPOKEN_LANGUAGE = _SPOKEN_LANGUAGE
+                LANGUAGE = _LANGUAGE
+                start_time = time.time()
+                fetch_trending_repos()
+                end_time = time.time()
+                if end_time - start_time < 5:
+                    time.sleep(5.1 - end_time + start_time)  # 遵守GitHub API速率限制
 
 
         # 步骤2：获取仓库详情
