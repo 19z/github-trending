@@ -1,5 +1,7 @@
 import os
 import re
+import threading
+
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
@@ -119,7 +121,6 @@ def fetch_trending_repos():
             repo_star,
             stars_today
         ))
-
         repos_details.append({
             'repository_name': repo_name,
             'language': repo_language,
@@ -181,18 +182,40 @@ def update_trending_stats(repos):
     conn.commit()
 
 
+github_session = requests.Session()
+
+request_lock = threading.Lock()
+
+
+def github_api_request(url, params=None):
+    """使用GitHub API会话进行请求"""
+    with request_lock:
+        # 获取当前时间
+        current_time = time.time()
+        # 检查是否需要等待
+        if hasattr(github_api_request, 'last_request_time'):
+            time_since_last_request = current_time - github_api_request.last_request_time
+            if time_since_last_request < 2:
+                time.sleep(2 - time_since_last_request)
+        # 记录当前请求时间
+        github_api_request.last_request_time = current_time
+        with github_session.get(url, headers=HEADERS, params=params) as response:
+            return response.json()
+
+
 def fetch_repo_details(repo_name):
     """步骤2：获取仓库详细信息"""
     try:
         print(f'---- {repo_name}----')
         print('获取基础信息', end=' ')
-        repo_info = requests.get(f'https://api.github.com/repos/{repo_name}', headers=HEADERS).json()
+        repo_info = github_api_request(f'https://api.github.com/repos/{repo_name}')
         if 'message' in repo_info:
             handle_deleted_repo(repo_name)
             return
         print('获取README', end=' ')
         # 获取README
-        readme = get_readme_content(repo_name)
+        readme_info = github_api_request(f'https://api.github.com/repos/{repo_name}/readme')
+        readme = base64.b64decode(readme_info['content']).decode('utf-8')
 
         # 处理许可证信息
         license = repo_info.get('license', {}).get('name') if repo_info.get('license') else None
@@ -245,18 +268,6 @@ def fetch_repo_details(repo_name):
     except Exception as e:
         print(f"Error processing {repo_name}: {str(e)}")
         conn.rollback()
-
-
-def get_readme_content(repo_name):
-    """获取README内容"""
-    try:
-        readme_info = requests.get(
-            f'https://api.github.com/repos/{repo_name}/readme',
-            headers=HEADERS
-        ).json()
-        return base64.b64decode(readme_info['content']).decode('utf-8')
-    except:
-        return None
 
 
 def generate_ai_summary(repo_name, about, readme):
@@ -313,7 +324,7 @@ def main():
         # 步骤1：获取趋势数据
         global SPOKEN_LANGUAGE, LANGUAGE
         for _SPOKEN_LANGUAGE in ['any', 'zh', 'en']:
-            for _LANGUAGE in 'any/javascript/typescript/java/go'.split('/'):
+            for _LANGUAGE in 'any/javascript/typescript/java/go/python'.split('/'):
                 SPOKEN_LANGUAGE = _SPOKEN_LANGUAGE
                 LANGUAGE = _LANGUAGE
                 fetch_trending_repos()
@@ -331,13 +342,10 @@ def main():
            OR (last_flush_time < %s AND last_in_trending = %s)
         """, (_now - 3600 * 24 * 20, _today))
 
-        for (repo_name,) in cursor.fetchall():
-            _start_time = time.time()
-            fetch_repo_details(repo_name)
-            _end_time = time.time()
-            print(f'耗时：{_end_time - _start_time}秒')
-            if _end_time - _start_time < 3:
-                time.sleep(1)  # 遵守GitHub API速率限制
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor() as executor:
+            executor.map(fetch_repo_details, [repo_name for (repo_name,) in cursor.fetchall()])
+
 
     finally:
         cursor.close()
