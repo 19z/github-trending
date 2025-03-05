@@ -26,4 +26,4 @@ jobs:
       env:
         AUTODL_PHONE: ${{ secrets.AUTODL_PHONE }}
         AUTODL_PASSWORD: ${{ secrets.AUTODL_PASSWORD }}
-      run: python autodl_manager.py
+      run: python autodl_autoflush.py
