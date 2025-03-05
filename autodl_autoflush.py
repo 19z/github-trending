@@ -77,7 +77,7 @@ def find_earliest_stopped_instance(instances):
 
     for inst in instances:
         if inst["status"] != "shutdown":
-            continue
+            return None
 
         stopped_at = inst["stopped_at"]
         if not stopped_at["Valid"]:
@@ -105,10 +105,10 @@ def power_on_instance(session, instance):
         )
         resp.raise_for_status()
         result = resp.json()
-        logger.info(f"实例 {instance['uuid']} 开机结果: {result}")
+        logger.info(f"实例开机结果: {result}")
         return result["code"] == "Success"
     except Exception as e:
-        logger.warning(f"实例 {instance['uuid']} 开机失败: {str(e)}")
+        logger.warning(f"实例开机失败: {str(e)}")
         return False
 
 
@@ -128,7 +128,7 @@ def set_shutdown_time(session, instance):
         )
         resp.raise_for_status()
     except Exception as e:
-        print(f"实例 {instance['uuid']} 定时关机设置失败: {str(e)}")
+        print(f"实例定时关机设置失败: {str(e)}")
 
 
 def main():
@@ -153,12 +153,12 @@ def main():
             # 3. 重启实例
             success = power_on_instance(session, target_instance)
             if not success:
-                print(f"实例 {target_instance['uuid']} 开机失败")
+                print(f"实例开机失败")
                 return
             time.sleep(5)
             # 4. 设置15分钟后定时关机
             set_shutdown_time(session, target_instance)
-            print(f"已为实例 {target_instance['uuid']} 设置15分钟后关机")
+            print(f"已为实例设置15分钟后关机")
 
         except Exception as e:
             print(f"程序运行出错: {str(e)}")
