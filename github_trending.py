@@ -26,6 +26,7 @@ LANGUAGE = 'any'
 # 解析数据库URL
 db_url = urlparse(DATABASE_URL)
 db_config = {
+    'pool_name': 'github_trending_pool',
     'user': db_url.username,
     'password': db_url.password,
     'host': db_url.hostname,
@@ -184,9 +185,13 @@ def fetch_trending_repos():
     insert_query = """
     INSERT INTO github_trending 
     (spoken_language, language, date, repository_name, sort_index, repo_star, repo_star_today)
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
+    VALUES 
     """
-    execute_query(insert_query, repos)
+    insert_query += ','.join(['(%s, %s, %s, %s, %s, %s, %s)'] * len(repos))
+    arg_params = []
+    for repo in repos:
+        arg_params.extend(repo)
+    execute_query(insert_query, arg_params)
 
     # 更新仓库趋势信息
     update_trending_stats(repos_details)
@@ -386,7 +391,7 @@ def main():
             executor.shutdown(wait=True)
 
     finally:
-        db_pool.close()
+        pass
 
 if __name__ == '__main__':
     main()
