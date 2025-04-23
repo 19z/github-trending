@@ -6,6 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 import mysql.connector
+from mysql.connector import pooling
 from urllib.parse import urlparse
 import base64
 import time
@@ -30,15 +31,57 @@ db_config = {
     'host': db_url.hostname,
     'port': db_url.port,
     'database': db_url.path.lstrip('/'),
-    'charset': 'utf8mb4'
+    'charset': 'utf8mb4',
+    'pool_size': 5,  # 连接池大小
+    'pool_reset_session': True  # 重置会话
 }
 
-# 初始化数据库连接
-conn = mysql.connector.connect(**db_config)
-cursor = conn.cursor(buffered=True)
+# 创建连接池
+db_pool = pooling.MySQLConnectionPool(**db_config)
+
+def get_db_connection():
+    """获取数据库连接"""
+    try:
+        conn = db_pool.get_connection()
+        if conn.is_connected():
+            return conn
+    except mysql.connector.Error as err:
+        print(f"Error connecting to MySQL: {err}")
+    return None
+
+def close_db_connection(conn):
+    """关闭数据库连接"""
+    if conn and conn.is_connected():
+        conn.close()
+
+def execute_query(query, params=None):
+    """执行查询并自动重新连接"""
+    conn = get_db_connection()
+    cursor = None
+    try:
+        if conn is None:
+            raise mysql.connector.Error("Failed to get database connection")
+        cursor = conn.cursor(buffered=True)
+        cursor.execute(query, params)
+        conn.commit()
+        return cursor
+    except mysql.connector.Error as err:
+        print(f"Database error: {err}")
+        close_db_connection(conn)
+        conn = get_db_connection()
+        if conn is None:
+            raise mysql.connector.Error("Failed to get database connection after retry")
+        cursor = conn.cursor(buffered=True)
+        cursor.execute(query, params)
+        conn.commit()
+        return cursor
+    finally:
+        if cursor:
+            cursor.close()
+        close_db_connection(conn)
 
 # 创建表结构
-cursor.execute("""
+execute_query("""
 CREATE TABLE IF NOT EXISTS github_trending (
     spoken_language VARCHAR(100) DEFAULT 'any',
     language VARCHAR(100) DEFAULT 'any',
@@ -51,7 +94,7 @@ CREATE TABLE IF NOT EXISTS github_trending (
 )
 """)
 
-cursor.execute("""
+execute_query("""
 CREATE TABLE IF NOT EXISTS github_repository (
     name VARCHAR(200) PRIMARY KEY,
     language VARCHAR(100),
@@ -72,7 +115,6 @@ CREATE TABLE IF NOT EXISTS github_repository (
     in_trending_time INT DEFAULT 0
 )
 """)
-conn.commit()
 
 # GitHub API配置
 HEADERS = {
@@ -131,7 +173,7 @@ def fetch_trending_repos():
         })
 
     # 删除当天已有数据
-    cursor.execute("""
+    execute_query("""
     DELETE FROM github_trending 
     WHERE date = %s 
       AND spoken_language = %s 
@@ -144,8 +186,7 @@ def fetch_trending_repos():
     (spoken_language, language, date, repository_name, sort_index, repo_star, repo_star_today)
     VALUES (%s, %s, %s, %s, %s, %s, %s)
     """
-    cursor.executemany(insert_query, repos)
-    conn.commit()
+    execute_query(insert_query, repos)
 
     # 更新仓库趋势信息
     update_trending_stats(repos_details)
@@ -179,9 +220,7 @@ def update_trending_stats(repos):
             'top_in_trending': repo['sort_index'],
             'in_trending_time': 1
         }
-        cursor.execute(upsert_query, data)
-    conn.commit()
-
+        execute_query(upsert_query, data)
 
 github_session = requests.Session()
 
@@ -237,7 +276,7 @@ def fetch_repo_details(repo_name):
         )
         with db_lock:
             # 检查内容变化
-            cursor.execute("""
+            cursor = execute_query("""
             SELECT readme, about, ai_summary 
             FROM github_repository 
             WHERE name = %s
@@ -245,7 +284,7 @@ def fetch_repo_details(repo_name):
             existing = cursor.fetchone()
 
             # 更新仓库信息
-            cursor.execute("""
+            execute_query("""
             UPDATE github_repository SET
                 fork_num = %s,
                 star_num = %s,
@@ -258,7 +297,6 @@ def fetch_repo_details(repo_name):
                 last_flush_time = %s
             WHERE name = %s
             """, update_data)
-            conn.commit()
 
         # 生成AI摘要
         if not existing or not existing[2]:
@@ -268,8 +306,6 @@ def fetch_repo_details(repo_name):
 
     except Exception as e:
         print(f"Error processing {repo_name}: {str(e)}")
-        conn.rollback()
-
 
 def generate_ai_summary(repo_name, about, readme):
     """步骤3：生成AI摘要"""
@@ -299,12 +335,11 @@ def generate_ai_summary(repo_name, about, readme):
         response.raise_for_status()
         summary = response.json()['choices'][0]['message']['content'].strip()
         with db_lock:
-            cursor.execute("""
+            execute_query("""
             UPDATE github_repository 
             SET ai_summary = %s 
             WHERE name = %s
             """, (summary, repo_name))
-            conn.commit()
         return summary
     except Exception as e:
         print(f"AI summary failed for {repo_name}: {str(e)}")
@@ -312,13 +347,11 @@ def generate_ai_summary(repo_name, about, readme):
 
 def handle_deleted_repo(repo_name):
     """处理已删除的仓库"""
-    cursor.execute("""
+    execute_query("""
     UPDATE github_repository 
     SET delete_time = %s 
     WHERE name = %s
     """, (int(time.time()), repo_name))
-    conn.commit()
-
 
 def main():
     try:
@@ -339,7 +372,7 @@ def main():
         _now = int(time.time())
         _today = datetime.now(timezone.utc).date()
 
-        cursor.execute("""
+        cursor = execute_query("""
         SELECT name 
         FROM github_repository 
         WHERE ai_summary IS NULL 
@@ -353,9 +386,7 @@ def main():
             executor.shutdown(wait=True)
 
     finally:
-        cursor.close()
-        conn.close()
-
+        db_pool.close()
 
 if __name__ == '__main__':
     main()
