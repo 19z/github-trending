@@ -31,7 +31,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests pandas sqlalchemy mysql-connector-python
+        pip install requests pandas sqlalchemy mysql-connector-python pymysql
         
     - name: Run Steam data collection
       env:
