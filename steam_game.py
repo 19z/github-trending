@@ -117,8 +117,9 @@ def SteamDA_GamePlayedRecord():
     cursor = db.cursor()  # 创建游标对象
 
     try:
+        # 修复了 CREATE TABLE 语句中的语法错误，将 IF NOT EXIST 改为 IF NOT EXISTS
         create_db = """
-        CREATE TABLE IF NOT EXIST `dwd_steam_game_played_record` (
+        CREATE TABLE IF NOT EXISTS `dwd_steam_game_played_record` (
   `id` int NOT NULL AUTO_INCREMENT,
   `appid` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `game_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
@@ -133,7 +134,7 @@ def SteamDA_GamePlayedRecord():
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
 """
         cursor.execute(create_db)
-        
+
         sql = """
         INSERT INTO dwd_steam_game_played_record 
         SELECT 
