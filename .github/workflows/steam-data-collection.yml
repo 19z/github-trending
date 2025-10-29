@@ -3,7 +3,7 @@ name: Steam Data Collection
 on:
   schedule:
     # 每天UTC时间0点运行（北京时间早上8点）
-    - cron: '36 */8 * * *'
+    - cron: '36 */6 * * *'
   workflow_dispatch:
 
 jobs:
